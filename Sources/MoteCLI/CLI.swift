@@ -31,6 +31,8 @@ struct CLI {
             return try listVMs()
         case "create":
             return try createVM(arguments: Array(arguments.dropFirst()))
+        case "start":
+            return try startVM(arguments: Array(arguments.dropFirst()))
         default:
             throw CLIError.usage("Unknown command '\(command)'. Run 'mote help' for usage.")
         }
@@ -95,10 +97,28 @@ struct CLI {
         guard (VZVirtualMachineConfiguration.minimumAllowedMemorySize...VZVirtualMachineConfiguration.maximumAllowedMemorySize).contains(memorySize) else {
             throw CLIError.usage("Memory size must be supported by this host.")
         }
+        try VMConfigurationBuilder.validateDiskSize(diskSize)
 
         let record = VMRecord(name: name, cpuCount: cpuCount, memorySize: memorySize, diskSize: diskSize)
         let url = try store.create(record)
         return "Created '\(name)' at \(url.path)"
+    }
+
+    private func startVM(arguments: [String]) throws -> String {
+        guard arguments.count == 1, let name = arguments.first else {
+            throw CLIError.usage("Usage: mote start <name>")
+        }
+
+        let bundle = try store.load(named: name)
+        let terminal = TerminalSession()
+        let configuration = try VMConfigurationBuilder().build(
+            for: bundle,
+            consoleInput: terminal.guestInput,
+            consoleOutput: .standardOutput
+        )
+        let runner = VMRunner(configuration: configuration, terminal: terminal)
+        try runner.run()
+        return ""
     }
 
     static let help = """
@@ -110,6 +130,7 @@ struct CLI {
     COMMANDS
       create <name> [--cpus N] [--memory 8G] [--disk 64G]
                           Create an empty ARM64 Linux VM bundle
+      start <name>        Start a VM in the foreground
       list, ls            List virtual machines
       host                Show host virtualization limits
       version             Show the Mote version

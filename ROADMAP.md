@@ -37,16 +37,19 @@ Exit criteria:
 
 Goal: boot an ARM64 Linux guest and expose its serial console in the terminal.
 
-- Add a configuration builder separate from CLI parsing and persistence.
-- Configure `VZEFIBootLoader` using the bundle's persistent EFI variable store.
-- Attach the primary disk through a virtio block device.
-- Add virtio entropy and memory-balloon devices.
-- Add a virtio console or serial port connected to stdin and stdout.
-- Add NAT networking with a virtio network device.
-- Implement `mote start <name>` as a foreground process.
-- Validate the complete `VZVirtualMachineConfiguration` before starting.
-- Forward termination signals into a graceful VM shutdown attempt.
-- Report VM state changes and actionable framework errors.
+Status: implemented; end-to-end guest login verification requires a bootable
+ARM64 raw disk image.
+
+- [x] Add a configuration builder separate from CLI parsing and persistence.
+- [x] Configure `VZEFIBootLoader` using the bundle's persistent EFI variable store.
+- [x] Attach the primary disk through a virtio block device.
+- [x] Add virtio entropy and memory-balloon devices.
+- [x] Add a virtio serial port connected to stdin and stdout.
+- [x] Add NAT networking with a virtio network device.
+- [x] Implement `mote start <name>` as a foreground process.
+- [x] Validate the complete `VZVirtualMachineConfiguration` before starting.
+- [x] Forward termination signals into graceful and forced shutdown paths.
+- [x] Report VM lifecycle transitions and actionable framework errors.
 
 Exit criteria:
 

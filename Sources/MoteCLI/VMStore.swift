@@ -1,10 +1,21 @@
 import Foundation
 import Virtualization
 
+struct VMBundle: Sendable {
+    let record: VMRecord
+    let url: URL
+
+    var diskURL: URL { url.appending(path: VMRecord.diskName) }
+    var variableStoreURL: URL { url.appending(path: VMRecord.variableStoreName) }
+    var manifestURL: URL { url.appending(path: VMRecord.manifestName) }
+}
+
 struct VMStore {
     enum StoreError: LocalizedError {
         case invalidName(String)
         case alreadyExists(String)
+        case notFound(String)
+        case missingComponent(vm: String, component: String)
         case corruptBundle(String)
 
         var errorDescription: String? {
@@ -13,6 +24,10 @@ struct VMStore {
                 return "Invalid VM name '\(name)'. Use letters, numbers, dots, underscores, or hyphens."
             case .alreadyExists(let name):
                 return "A VM named '\(name)' already exists."
+            case .notFound(let name):
+                return "No VM named '\(name)' exists."
+            case .missingComponent(let vm, let component):
+                return "The VM '\(vm)' is missing \(component)."
             case .corruptBundle(let name):
                 return "The VM bundle '\(name)' has an unreadable manifest."
             }
@@ -52,6 +67,32 @@ struct VMStore {
                 return record
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    func load(named name: String) throws -> VMBundle {
+        guard Self.isValidName(name) else { throw StoreError.invalidName(name) }
+
+        let bundleURL = root.appending(path: "\(name).motevm", directoryHint: .isDirectory)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: bundleURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw StoreError.notFound(name)
+        }
+
+        let manifestURL = bundleURL.appending(path: VMRecord.manifestName)
+        guard let data = try? Data(contentsOf: manifestURL),
+              let record = try? Self.decoder.decode(VMRecord.self, from: data) else {
+            throw StoreError.corruptBundle(name)
+        }
+
+        let bundle = VMBundle(record: record, url: bundleURL)
+        guard fileManager.fileExists(atPath: bundle.diskURL.path) else {
+            throw StoreError.missingComponent(vm: name, component: VMRecord.diskName)
+        }
+        guard fileManager.fileExists(atPath: bundle.variableStoreURL.path) else {
+            throw StoreError.missingComponent(vm: name, component: VMRecord.variableStoreName)
+        }
+        return bundle
     }
 
     func create(_ record: VMRecord) throws -> URL {
