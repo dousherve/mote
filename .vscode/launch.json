@@ -1,0 +1,24 @@
+{
+	"configurations": [
+		{
+			"type": "swift",
+			"request": "launch",
+			"args": [],
+			"cwd": "${workspaceFolder:mote}",
+			"name": "Debug mote",
+			"target": "mote",
+			"configuration": "debug",
+			"preLaunchTask": "swift: Build Debug mote"
+		},
+		{
+			"type": "swift",
+			"request": "launch",
+			"args": [],
+			"cwd": "${workspaceFolder:mote}",
+			"name": "Release mote",
+			"target": "mote",
+			"configuration": "release",
+			"preLaunchTask": "swift: Build Release mote"
+		}
+	]
+}
