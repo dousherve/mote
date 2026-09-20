@@ -154,7 +154,7 @@ struct CLI {
             try attachment.run()
             return "Detached from '\(name)'; the VM is still running."
         }
-        return "Started '\(name)' in the background (PID \(runtime.pid))."
+        return "Started '\(name)' (PID \(runtime.pid))."
     }
 
     @MainActor
