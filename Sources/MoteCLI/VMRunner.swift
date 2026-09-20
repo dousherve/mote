@@ -65,7 +65,12 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
         }
 
         while !finished {
-            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.25))
+            let limit = Date(timeIntervalSinceNow: 0.25)
+            if let display {
+                display.processEvents(until: limit)
+            } else {
+                RunLoop.main.run(mode: .default, before: limit)
+            }
         }
 
         if let failure { throw failure }

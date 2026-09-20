@@ -16,7 +16,7 @@ Virtualization.framework.
 ## 1. Build Mote
 
 ```sh
-./scripts/build.sh
+make release
 ```
 
 ## 2. Create an empty VM
@@ -186,9 +186,3 @@ requires an explicit override:
 
 This does not erase the disk before booting the installer. Any repartitioning or
 data loss occurs only through actions taken inside the installer.
-
-## QEMU fallback
-
-If a particular Fedora installer does not work with Mote, follow
-[Install Fedora Server for Mote with QEMU](install-fedora-with-qemu.md). Both
-paths operate on the same raw `disk.img` format.

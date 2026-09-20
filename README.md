@@ -6,9 +6,7 @@ Apple's Virtualization framework.
 See [ROADMAP.md](ROADMAP.md) for planned milestones and project boundaries.
 
 To install Fedora ARM64 natively, follow
-[Install Fedora Server with Mote](docs/install-fedora-with-mote.md). A
-[QEMU fallback](docs/install-fedora-with-qemu.md) and its host-side automation
-script remain available for installer compatibility testing.
+[Install Fedora Server with Mote](docs/install-fedora-with-mote.md).
 
 ## Requirements
 
@@ -23,8 +21,7 @@ The build script compiles Mote and ad-hoc signs it with the Virtualization
 entitlement:
 
 ```sh
-chmod +x scripts/build.sh
-./scripts/build.sh
+make release
 ```
 
 Run the tests with the full Xcode toolchain:
