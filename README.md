@@ -4,6 +4,8 @@ Mote is a tiny command-line VM manager for Apple silicon Macs, built directly on
 Apple's Virtualization framework.
 
 See [ROADMAP.md](ROADMAP.md) for planned milestones and project boundaries.
+See [How Mote works](docs/how-mote-works.md) for a detailed guide to the
+architecture, bundle format, supervisor lifecycle, and source code.
 
 To install Fedora ARM64 natively, follow
 [Install Fedora Server with Mote](docs/install-fedora-with-mote.md).
