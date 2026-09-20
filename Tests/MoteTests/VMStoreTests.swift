@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MoteCLI
+@testable import Mote
 
 @Test func validatesNames() {
     #expect(VMStore.isValidName("ubuntu-dev_1"))

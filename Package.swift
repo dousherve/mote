@@ -6,19 +6,19 @@ let package = Package(
     name: "Mote",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "mote", targets: ["MoteCLI"])
+        .executable(name: "mote", targets: ["Mote"])
     ],
     targets: [
         .executableTarget(
-            name: "MoteCLI",
+            name: "Mote",
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("Virtualization")
             ]
         ),
         .testTarget(
-            name: "MoteCLITests",
-            dependencies: ["MoteCLI"]
+            name: "MoteTests",
+            dependencies: ["Mote"]
         )
     ]
 )

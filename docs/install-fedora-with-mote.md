@@ -70,8 +70,10 @@ exit, and boot the installed disk without the ISO but with a display:
 .build/release/mote start fedora --display
 ```
 
-`--display` is useful until Fedora's virtio serial console is configured. Normal
-headless starts do not create a window.
+The VM continues running in the background after this command returns. Use
+`.build/release/mote display fedora` to reopen its window. `--display` is useful
+until Fedora's virtio serial console is configured; normal headless starts do not
+open a window.
 
 ## 5. Configure the serial console
 
@@ -149,13 +151,19 @@ Shut Fedora down cleanly:
 sudo poweroff
 ```
 
-Then start it without a display or installation media:
+Then start it without installation media and attach the serial console:
 
 ```sh
-.build/release/mote start fedora
+.build/release/mote start fedora --console
 ```
 
 The terminal should show Fedora kernel output followed by an `hvc0` login prompt.
+Press `Ctrl-]` to detach while leaving Fedora running. To reconnect later, run:
+
+```sh
+.build/release/mote attach fedora
+```
+
 After logging in, verify the guest:
 
 ```sh

@@ -21,6 +21,7 @@ final class VMDisplay {
         )
         window.title = title
         window.contentView = view
+        window.isReleasedWhenClosed = false
         window.center()
     }
 

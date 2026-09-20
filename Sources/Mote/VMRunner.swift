@@ -12,9 +12,10 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
     }
 
     private let virtualMachine: VZVirtualMachine
-    private let terminal: TerminalSession
+    private let terminal: TerminalSession?
     private let logger: Logger
     private var signalSources: [DispatchSourceSignal] = []
+    private var startCompleted = false
     private var finished = false
     private var failure: Error?
     private var stopReason: StopReason?
@@ -23,7 +24,7 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
 
     init(
         configuration: VZVirtualMachineConfiguration,
-        terminal: TerminalSession,
+        terminal: TerminalSession? = nil,
         logger: @escaping Logger = VMRunner.standardErrorLogger
     ) {
         self.virtualMachine = VZVirtualMachine(configuration: configuration)
@@ -34,20 +35,25 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
     }
 
     @MainActor
-    func run(displayTitle: String? = nil) throws -> StopReason {
+    func run(
+        displayTitle: String? = nil,
+        didStart: (() throws -> Void)? = nil,
+        poll: (() -> Void)? = nil
+    ) throws -> StopReason {
         precondition(Thread.isMainThread, "VMRunner must run on the main thread")
 
         if let displayTitle {
-            display = VMDisplay(virtualMachine: virtualMachine, title: displayTitle)
-            display?.show()
+            showDisplay(title: displayTitle)
         }
-        try terminal.start { [weak self] in
-            self?.requestStop(source: "console escape")
+        if let terminal {
+            try terminal.start { [weak self] in
+                self?.requestStop(source: "console escape")
+            }
         }
         installSignalHandlers()
         defer {
             removeSignalHandlers()
-            terminal.stop()
+            terminal?.stop()
             display?.close()
             display = nil
         }
@@ -57,24 +63,40 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
             guard let self else { return }
             switch result {
             case .success:
-                self.logger("Virtual machine is running. Press Ctrl-] to request shutdown.")
+                self.startCompleted = true
             case .failure(let error):
                 self.failure = error
                 self.finished = true
             }
         }
 
+        while !startCompleted, failure == nil {
+            processEvents()
+        }
+        if let failure { throw failure }
+
+        try didStart?()
+        if terminal == nil {
+            logger("Virtual machine is running in the background.")
+        } else {
+            logger("Virtual machine is running. Press Ctrl-] to request shutdown.")
+        }
+
         while !finished {
-            let limit = Date(timeIntervalSinceNow: 0.25)
-            if let display {
-                display.processEvents(until: limit)
-            } else {
-                RunLoop.main.run(mode: .default, before: limit)
-            }
+            poll?()
+            processEvents()
         }
 
         if let failure { throw failure }
         return stopReason ?? .forced
+    }
+
+    @MainActor
+    func showDisplay(title: String) {
+        if display == nil {
+            display = VMDisplay(virtualMachine: virtualMachine, title: title)
+        }
+        display?.show()
     }
 
     func guestDidStop(_ virtualMachine: VZVirtualMachine) {
@@ -145,6 +167,16 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
             }
             self.stopReason = .forced
             self.finished = true
+        }
+    }
+
+    @MainActor
+    private func processEvents() {
+        let limit = Date(timeIntervalSinceNow: 0.25)
+        if let display {
+            display.processEvents(until: limit)
+        } else {
+            RunLoop.main.run(mode: .default, before: limit)
         }
     }
 

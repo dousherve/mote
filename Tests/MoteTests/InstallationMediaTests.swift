@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MoteCLI
+@testable import Mote
 
 @Test func acceptsARM64ISOFile() throws {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)

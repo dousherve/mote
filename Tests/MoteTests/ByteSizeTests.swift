@@ -1,5 +1,5 @@
 import Testing
-@testable import MoteCLI
+@testable import Mote
 
 @Test func parsesBinaryUnits() throws {
     #expect(try ByteSize.parse("8G") == 8 << 30)

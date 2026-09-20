@@ -5,12 +5,18 @@ struct CLI {
     enum CLIError: LocalizedError {
         case usage(String)
         case installationAlreadyAttempted(String)
+        case alreadyRunning(String)
+        case notRunning(String)
 
         var errorDescription: String? {
             switch self {
             case .usage(let message): return message
             case .installationAlreadyAttempted(let name):
                 return "Installation has already been attempted for '\(name)'. Use --force to run it again."
+            case .alreadyRunning(let name):
+                return "The VM '\(name)' is already running."
+            case .notRunning(let name):
+                return "The VM '\(name)' is not running."
             }
         }
     }
@@ -37,8 +43,14 @@ struct CLI {
             return try createVM(arguments: Array(arguments.dropFirst()))
         case "start":
             return try startVM(arguments: Array(arguments.dropFirst()))
+        case "attach":
+            return try attachVM(arguments: Array(arguments.dropFirst()))
+        case "display":
+            return try displayVM(arguments: Array(arguments.dropFirst()))
         case "install":
             return try installVM(arguments: Array(arguments.dropFirst()))
+        case "_run":
+            return try runSupervisor(arguments: Array(arguments.dropFirst()))
         default:
             throw CLIError.usage("Unknown command '\(command)'. Run 'mote help' for usage.")
         }
@@ -113,26 +125,70 @@ struct CLI {
     @MainActor
     private func startVM(arguments: [String]) throws -> String {
         guard let name = arguments.first, !name.hasPrefix("-") else {
-            throw CLIError.usage("Usage: mote start <name> [--display]")
+            throw CLIError.usage("Usage: mote start <name> [--display] [--console]")
         }
         var display = false
+        var console = false
         for option in arguments.dropFirst() {
-            guard option == "--display", !display else {
+            switch option {
+            case "--display" where !display:
+                display = true
+            case "--console" where !console:
+                console = true
+            default:
                 throw CLIError.usage("Unknown option '\(option)'.")
             }
-            display = true
         }
 
         let bundle = try store.load(named: name)
-        let terminal = TerminalSession()
-        let configuration = try VMConfigurationBuilder().build(
-            for: bundle,
-            consoleInput: terminal.guestInput,
-            consoleOutput: .standardOutput,
-            options: .init(graphicalDisplay: display)
-        )
-        let runner = VMRunner(configuration: configuration, terminal: terminal)
-        _ = try runner.run(displayTitle: display ? name : nil)
+        guard store.activeRuntime(for: bundle) == nil else {
+            throw CLIError.alreadyRunning(name)
+        }
+
+        let runtime = try VMProcessLauncher(store: store).launch(bundle: bundle)
+        if display {
+            try VMControlChannel.send("display", to: bundle)
+        }
+        if console {
+            let attachment = SerialAttachment(bundle: bundle)
+            try attachment.run()
+            return "Detached from '\(name)'; the VM is still running."
+        }
+        return "Started '\(name)' in the background (PID \(runtime.pid))."
+    }
+
+    @MainActor
+    private func attachVM(arguments: [String]) throws -> String {
+        guard arguments.count == 1, let name = arguments.first, !name.hasPrefix("-") else {
+            throw CLIError.usage("Usage: mote attach <name>")
+        }
+        let bundle = try store.load(named: name)
+        guard store.activeRuntime(for: bundle) != nil else {
+            throw CLIError.notRunning(name)
+        }
+        let attachment = SerialAttachment(bundle: bundle)
+        try attachment.run()
+        return "Detached from '\(name)'; the VM is still running."
+    }
+
+    private func displayVM(arguments: [String]) throws -> String {
+        guard arguments.count == 1, let name = arguments.first, !name.hasPrefix("-") else {
+            throw CLIError.usage("Usage: mote display <name>")
+        }
+        let bundle = try store.load(named: name)
+        guard store.activeRuntime(for: bundle) != nil else {
+            throw CLIError.notRunning(name)
+        }
+        try VMControlChannel.send("display", to: bundle)
+        return "Opened the display for '\(name)'."
+    }
+
+    @MainActor
+    private func runSupervisor(arguments: [String]) throws -> String {
+        guard arguments.count == 1, let name = arguments.first else {
+            throw CLIError.usage("Invalid internal supervisor invocation.")
+        }
+        try VMBackgroundSupervisor(store: store).run(name: name)
         return ""
     }
 
@@ -169,6 +225,7 @@ struct CLI {
         if bundle.record.installation != nil, !force {
             throw CLIError.installationAlreadyAttempted(name)
         }
+        let lock = try VMLock(bundle: bundle)
 
         let media = try InstallationMedia(path: isoPath)
         let terminal = TerminalSession()
@@ -183,7 +240,9 @@ struct CLI {
         bundle = try store.recordInstallation(installation, for: bundle)
 
         let runner = VMRunner(configuration: configuration, terminal: terminal)
-        let reason = try runner.run(displayTitle: "Install \(name)")
+        let reason = try withExtendedLifetime(lock) {
+            try runner.run(displayTitle: "Install \(name)")
+        }
         switch reason {
         case .guestStopped:
             _ = try store.recordInstallation(installation.recordingGuestStop(), for: bundle)
@@ -202,8 +261,10 @@ struct CLI {
     COMMANDS
       create <name> [--cpus N] [--memory 8G] [--disk 64G]
                           Create an empty ARM64 Linux VM bundle
-      start <name> [--display]
-                          Start a VM in the foreground
+      start <name> [--display] [--console]
+                          Start a VM in the background
+      attach <name>       Attach to a running VM's serial console
+      display <name>      Open the display of a running VM
       install <name> --iso <path> [--force]
                           Boot an ARM64 installer in a graphical window
       list, ls            List virtual machines

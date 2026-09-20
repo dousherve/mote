@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MoteCLI
+@testable import Mote
 
 @Test func derivesStableLocallyAdministeredMACAddress() {
     let id = UUID(uuidString: "12345678-9abc-def0-1234-56789abcdef0")!
@@ -29,4 +29,7 @@ import Testing
 
     #expect(throws: CLI.CLIError.self) { try cli.run(arguments: ["start"]) }
     #expect(throws: CLI.CLIError.self) { try cli.run(arguments: ["start", "one", "two"]) }
+    #expect(throws: CLI.CLIError.self) { try cli.run(arguments: ["start", "one", "--console", "--console"]) }
+    #expect(throws: CLI.CLIError.self) { try cli.run(arguments: ["attach"]) }
+    #expect(throws: CLI.CLIError.self) { try cli.run(arguments: ["display", "one", "two"]) }
 }

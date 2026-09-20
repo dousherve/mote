@@ -11,7 +11,7 @@ The roadmap is ordered by dependency and risk rather than by calendar date.
 - Support ARM64 Linux guests first.
 - Keep the core dependency-free beyond Apple system frameworks.
 - Store each VM as a portable, inspectable `.motevm` bundle.
-- Run one foreground VM per `mote start` process before considering a daemon.
+- Keep each running VM in a small unprivileged supervisor; avoid a global daemon.
 - Prefer safe, explicit lifecycle operations; never silently discard guest data.
 - Keep configuration backward-compatible through a versioned manifest.
 - Target macOS 14 or newer until a newer API provides a compelling simplification.
@@ -46,14 +46,16 @@ ARM64 raw disk image.
 - [x] Add virtio entropy and memory-balloon devices.
 - [x] Add a virtio serial port connected to stdin and stdout.
 - [x] Add NAT networking with a virtio network device.
-- [x] Implement `mote start <name>` as a foreground process.
+- [x] Implement the initial foreground `mote start <name>` runner, later
+  superseded by the Milestone 3 supervisor.
 - [x] Validate the complete `VZVirtualMachineConfiguration` before starting.
 - [x] Forward termination signals into graceful and forced shutdown paths.
 - [x] Report VM lifecycle transitions and actionable framework errors.
 
 Exit criteria:
 
-- `mote start <name>` reaches a Linux login prompt in the current terminal.
+- `mote start <name> --console` reaches a Linux login prompt in the current
+  terminal.
 - The guest sees its configured CPUs, memory, disk, and network interface.
 - Exiting or interrupting Mote does not leave corrupt bundle state.
 
@@ -86,22 +88,27 @@ layer over the same VM core rather than moving VM logic into the UI.
 
 Goal: make everyday VM operations safe and unsurprising.
 
-- Add `mote show <name>` for configuration, bundle path, disk allocation, and
+Status: in progress
+
+- [x] Start VMs in background supervisor processes by default.
+- [x] Add `mote attach <name>` and `mote display <name>` for delayed serial and
+  graphical access.
+- [ ] Add `mote show <name>` for configuration, bundle path, disk allocation, and
   runtime state.
-- Add graceful `stop`, forced `stop --force`, `restart`, and `delete` commands.
-- Add a per-VM lock so two processes cannot run or mutate one VM concurrently.
-- Persist the runner PID and detect stale runtime metadata.
-- Use stable exit codes for usage, missing VM, invalid configuration, and runtime
+- [ ] Add graceful `stop`, forced `stop --force`, `restart`, and `delete` commands.
+- [x] Add a per-VM lock so two processes cannot run or mutate one VM concurrently.
+- [x] Persist the runner PID and detect stale runtime metadata.
+- [ ] Use stable exit codes for usage, missing VM, invalid configuration, and runtime
   failure.
-- Make command output script-friendly; add `--json` where structured output is
+- [ ] Make command output script-friendly; add `--json` where structured output is
   useful.
-- Add temporary-directory and interrupted-write tests for storage operations.
+- [ ] Add temporary-directory and interrupted-write tests for storage operations.
 
 Design checkpoint:
 
-`mote start` initially owns the VM and remains in the foreground. Detached VMs
-would require a small supervisor process and an IPC protocol. Add that only when
-there is a demonstrated need for `mote start --detach`.
+The need for delayed display and serial attachment established the case for a
+detached process. Each VM now has its own supervisor and bundle-local control
+channel; Mote still has no global daemon or privileged helper.
 
 Exit criteria:
 
@@ -197,6 +204,6 @@ Until the core is mature, Mote will not attempt to provide:
 
 ## Next implementation slice
 
-Start Milestone 3 with `mote show <name>`, a per-VM runtime lock, and stable exit
-codes. Establish those observability and concurrency primitives before adding
-destructive lifecycle commands such as `delete` or forced remote stop.
+Continue Milestone 3 with `mote show <name>`, supervisor-backed stop and restart
+commands, and stable exit codes. Add `delete` only after those observability and
+lifecycle controls are complete.

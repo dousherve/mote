@@ -8,6 +8,12 @@ struct VMBundle: Sendable {
     var diskURL: URL { url.appending(path: VMRecord.diskName) }
     var variableStoreURL: URL { url.appending(path: VMRecord.variableStoreName) }
     var manifestURL: URL { url.appending(path: VMRecord.manifestName) }
+    var runtimeURL: URL { url.appending(path: ".runtime.json") }
+    var lockURL: URL { url.appending(path: ".lock") }
+    var controlURL: URL { url.appending(path: ".control") }
+    var consoleInputURL: URL { url.appending(path: ".console-input") }
+    var consoleLogURL: URL { url.appending(path: ".console.log") }
+    var runnerLogURL: URL { url.appending(path: ".runner.log") }
 }
 
 struct VMStore {
@@ -132,6 +138,32 @@ struct VMStore {
         let data = try Self.encoder.encode(record)
         try data.write(to: bundle.manifestURL, options: .atomic)
         return VMBundle(record: record, url: bundle.url)
+    }
+
+    func writeRuntime(_ runtime: VMRuntime, for bundle: VMBundle) throws {
+        let data = try Self.encoder.encode(runtime)
+        try data.write(to: bundle.runtimeURL, options: .atomic)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: bundle.runtimeURL.path
+        )
+    }
+
+    func runtime(for bundle: VMBundle) -> VMRuntime? {
+        guard let data = try? Data(contentsOf: bundle.runtimeURL) else { return nil }
+        return try? Self.decoder.decode(VMRuntime.self, from: data)
+    }
+
+    func activeRuntime(for bundle: VMBundle) -> VMRuntime? {
+        guard let runtime = runtime(for: bundle),
+              VMControlChannel.isAvailable(for: bundle) else {
+            return nil
+        }
+        return runtime
+    }
+
+    func clearRuntime(for bundle: VMBundle) {
+        try? fileManager.removeItem(at: bundle.runtimeURL)
     }
 
     static func isValidName(_ name: String) -> Bool {
