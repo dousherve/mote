@@ -4,10 +4,13 @@ import Virtualization
 struct CLI {
     enum CLIError: LocalizedError {
         case usage(String)
+        case installationAlreadyAttempted(String)
 
         var errorDescription: String? {
             switch self {
             case .usage(let message): return message
+            case .installationAlreadyAttempted(let name):
+                return "Installation has already been attempted for '\(name)'. Use --force to run it again."
             }
         }
     }
@@ -18,6 +21,7 @@ struct CLI {
         self.store = store
     }
 
+    @MainActor
     func run(arguments: [String]) throws -> String {
         guard let command = arguments.first else { return Self.help }
         switch command {
@@ -33,6 +37,8 @@ struct CLI {
             return try createVM(arguments: Array(arguments.dropFirst()))
         case "start":
             return try startVM(arguments: Array(arguments.dropFirst()))
+        case "install":
+            return try installVM(arguments: Array(arguments.dropFirst()))
         default:
             throw CLIError.usage("Unknown command '\(command)'. Run 'mote help' for usage.")
         }
@@ -104,9 +110,17 @@ struct CLI {
         return "Created '\(name)' at \(url.path)"
     }
 
+    @MainActor
     private func startVM(arguments: [String]) throws -> String {
-        guard arguments.count == 1, let name = arguments.first else {
-            throw CLIError.usage("Usage: mote start <name>")
+        guard let name = arguments.first, !name.hasPrefix("-") else {
+            throw CLIError.usage("Usage: mote start <name> [--display]")
+        }
+        var display = false
+        for option in arguments.dropFirst() {
+            guard option == "--display", !display else {
+                throw CLIError.usage("Unknown option '\(option)'.")
+            }
+            display = true
         }
 
         let bundle = try store.load(named: name)
@@ -114,11 +128,69 @@ struct CLI {
         let configuration = try VMConfigurationBuilder().build(
             for: bundle,
             consoleInput: terminal.guestInput,
-            consoleOutput: .standardOutput
+            consoleOutput: .standardOutput,
+            options: .init(graphicalDisplay: display)
         )
         let runner = VMRunner(configuration: configuration, terminal: terminal)
-        try runner.run()
+        _ = try runner.run(displayTitle: display ? name : nil)
         return ""
+    }
+
+    @MainActor
+    private func installVM(arguments: [String]) throws -> String {
+        guard let name = arguments.first, !name.hasPrefix("-") else {
+            throw CLIError.usage("Usage: mote install <name> --iso <path> [--force]")
+        }
+
+        var isoPath: String?
+        var force = false
+        var index = 1
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--iso":
+                guard index + 1 < arguments.count else {
+                    throw CLIError.usage("Missing value for '--iso'.")
+                }
+                isoPath = arguments[index + 1]
+                index += 2
+            case "--force":
+                force = true
+                index += 1
+            default:
+                throw CLIError.usage("Unknown option '\(arguments[index])'.")
+            }
+        }
+
+        guard let isoPath else {
+            throw CLIError.usage("Usage: mote install <name> --iso <path> [--force]")
+        }
+
+        var bundle = try store.load(named: name)
+        if bundle.record.installation != nil, !force {
+            throw CLIError.installationAlreadyAttempted(name)
+        }
+
+        let media = try InstallationMedia(path: isoPath)
+        let terminal = TerminalSession()
+        let configuration = try VMConfigurationBuilder().build(
+            for: bundle,
+            consoleInput: terminal.guestInput,
+            consoleOutput: .standardOutput,
+            options: .init(installationMedia: media.url, graphicalDisplay: true)
+        )
+
+        let installation = VMInstallation.started(mediaName: media.url.lastPathComponent)
+        bundle = try store.recordInstallation(installation, for: bundle)
+
+        let runner = VMRunner(configuration: configuration, terminal: terminal)
+        let reason = try runner.run(displayTitle: "Install \(name)")
+        switch reason {
+        case .guestStopped:
+            _ = try store.recordInstallation(installation.recordingGuestStop(), for: bundle)
+            return "Installation session ended for '\(name)'. Run 'mote start \(name)' to boot without the ISO."
+        case .forced:
+            return "Installation session for '\(name)' was force-stopped; its disk may be incomplete."
+        }
     }
 
     static let help = """
@@ -130,7 +202,10 @@ struct CLI {
     COMMANDS
       create <name> [--cpus N] [--memory 8G] [--disk 64G]
                           Create an empty ARM64 Linux VM bundle
-      start <name>        Start a VM in the foreground
+      start <name> [--display]
+                          Start a VM in the foreground
+      install <name> --iso <path> [--force]
+                          Boot an ARM64 installer in a graphical window
       list, ls            List virtual machines
       host                Show host virtualization limits
       version             Show the Mote version

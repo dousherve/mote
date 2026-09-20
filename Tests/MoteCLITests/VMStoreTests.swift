@@ -39,6 +39,44 @@ import Testing
     }
 }
 
+@Test func decodesLegacyManifestWithoutInstallationState() throws {
+    let json = """
+    {
+      "schemaVersion": 1,
+      "id": "12345678-9ABC-DEF0-1234-56789ABCDEF0",
+      "name": "legacy",
+      "createdAt": "2026-09-20T12:00:00Z",
+      "cpuCount": 2,
+      "memorySize": 1073741824,
+      "diskSize": 1073741824
+    }
+    """
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let record = try decoder.decode(VMRecord.self, from: Data(json.utf8))
+
+    #expect(record.schemaVersion == 1)
+    #expect(record.installation == nil)
+}
+
+@Test func recordsInstallationStateAtomically() throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let record = VMRecord(name: "installing", cpuCount: 2, memorySize: 1 << 30, diskSize: 1 << 30)
+    try writeBundle(record, at: root, includeDisk: true, includeVariableStore: true)
+    let store = VMStore(root: root)
+    let bundle = try store.load(named: "installing")
+    let startedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    let installation = VMInstallation.started(mediaName: "Fedora-aarch64.iso", at: startedAt)
+
+    _ = try store.recordInstallation(installation, for: bundle)
+    let updated = try store.load(named: "installing")
+
+    #expect(updated.record.schemaVersion == 2)
+    #expect(updated.record.installation == installation)
+}
+
 private func writeBundle(
     _ record: VMRecord,
     at root: URL,

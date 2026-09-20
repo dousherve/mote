@@ -23,7 +23,7 @@ import Testing
     }
 }
 
-@Test func startRequiresExactlyOneName() {
+@Test @MainActor func startRequiresExactlyOneName() {
     let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
     let cli = CLI(store: VMStore(root: root))
 

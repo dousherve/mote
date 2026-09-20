@@ -2,6 +2,11 @@ import Foundation
 import Virtualization
 
 struct VMConfigurationBuilder {
+    struct Options {
+        var installationMedia: URL?
+        var graphicalDisplay = false
+    }
+
     enum ConfigurationError: LocalizedError {
         case virtualizationUnsupported
         case invalidDiskSize(UInt64)
@@ -19,7 +24,8 @@ struct VMConfigurationBuilder {
     func build(
         for bundle: VMBundle,
         consoleInput: FileHandle,
-        consoleOutput: FileHandle
+        consoleOutput: FileHandle,
+        options: Options = Options()
     ) throws -> VZVirtualMachineConfiguration {
         guard VZVirtualMachine.isSupported else {
             throw ConfigurationError.virtualizationUnsupported
@@ -43,7 +49,16 @@ struct VMConfigurationBuilder {
         )
         let blockDevice = VZVirtioBlockDeviceConfiguration(attachment: diskAttachment)
         blockDevice.blockDeviceIdentifier = String(bundle.record.id.uuidString.prefix(20))
-        configuration.storageDevices = [blockDevice]
+        if let installationMedia = options.installationMedia {
+            let mediaAttachment = try VZDiskImageStorageDeviceAttachment(
+                url: installationMedia,
+                readOnly: true
+            )
+            let mediaDevice = VZUSBMassStorageDeviceConfiguration(attachment: mediaAttachment)
+            configuration.storageDevices = [mediaDevice, blockDevice]
+        } else {
+            configuration.storageDevices = [blockDevice]
+        }
 
         let network = VZVirtioNetworkDeviceConfiguration()
         network.attachment = VZNATNetworkDeviceAttachment()
@@ -59,6 +74,16 @@ struct VMConfigurationBuilder {
             fileHandleForWriting: consoleOutput
         )
         configuration.serialPorts = [serialPort]
+
+        if options.graphicalDisplay {
+            let graphics = VZVirtioGraphicsDeviceConfiguration()
+            graphics.scanouts = [
+                VZVirtioGraphicsScanoutConfiguration(widthInPixels: 1280, heightInPixels: 800)
+            ]
+            configuration.graphicsDevices = [graphics]
+            configuration.keyboards = [VZUSBKeyboardConfiguration()]
+            configuration.pointingDevices = [VZUSBScreenCoordinatePointingDeviceConfiguration()]
+        }
 
         try configuration.validate()
         return configuration

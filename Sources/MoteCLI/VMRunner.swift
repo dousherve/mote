@@ -6,13 +6,20 @@ import Virtualization
 final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
     typealias Logger = @Sendable (String) -> Void
 
+    enum StopReason: Sendable {
+        case guestStopped
+        case forced
+    }
+
     private let virtualMachine: VZVirtualMachine
     private let terminal: TerminalSession
     private let logger: Logger
     private var signalSources: [DispatchSourceSignal] = []
     private var finished = false
     private var failure: Error?
+    private var stopReason: StopReason?
     private var stopRequestCount = 0
+    private var display: VMDisplay?
 
     init(
         configuration: VZVirtualMachineConfiguration,
@@ -26,9 +33,14 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
         self.virtualMachine.delegate = self
     }
 
-    func run() throws {
+    @MainActor
+    func run(displayTitle: String? = nil) throws -> StopReason {
         precondition(Thread.isMainThread, "VMRunner must run on the main thread")
 
+        if let displayTitle {
+            display = VMDisplay(virtualMachine: virtualMachine, title: displayTitle)
+            display?.show()
+        }
         try terminal.start { [weak self] in
             self?.requestStop(source: "console escape")
         }
@@ -36,6 +48,8 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
         defer {
             removeSignalHandlers()
             terminal.stop()
+            display?.close()
+            display = nil
         }
 
         logger("Starting virtual machine…")
@@ -55,10 +69,12 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
         }
 
         if let failure { throw failure }
+        return stopReason ?? .forced
     }
 
     func guestDidStop(_ virtualMachine: VZVirtualMachine) {
         logger("Guest shut down.")
+        stopReason = .guestStopped
         finished = true
     }
 
@@ -122,6 +138,7 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
             if let error {
                 self.failure = error
             }
+            self.stopReason = .forced
             self.finished = true
         }
     }

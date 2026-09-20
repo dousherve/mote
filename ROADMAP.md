@@ -61,14 +61,17 @@ Exit criteria:
 
 Goal: install Linux into an empty Mote VM without manually editing its bundle.
 
-- Implement `mote install <name> --iso <path>`.
-- Require ARM64 installation media and reject obviously incompatible inputs.
-- Attach the ISO as a read-only USB mass-storage or virtio block device.
-- Make boot-device ordering explicit during installation.
-- Detach installation media after a successful guest shutdown.
-- Record installation state in the manifest without treating it as authoritative
+Status: implemented; end-to-end Fedora installation verification is pending a
+real ARM64 installer run.
+
+- [x] Implement `mote install <name> --iso <path>`.
+- [x] Require ARM64 installation media and reject obviously incompatible inputs.
+- [x] Attach the ISO as a read-only USB mass-storage device.
+- [x] Make device ordering explicit during installation.
+- [x] Detach installation media when the installer VM exits.
+- [x] Record installation state in the manifest without treating it as authoritative
   guest state.
-- Document one known-good, serial-console-capable Linux installation flow.
+- [x] Document a Fedora installation and serial-console flow.
 
 Exit criteria:
 
@@ -194,15 +197,6 @@ Until the core is mature, Mote will not attempt to provide:
 
 ## Next implementation slice
 
-Start Milestone 1 with three components:
-
-1. `VMConfigurationBuilder` turns a `VMRecord` and bundle URLs into a validated
-   `VZVirtualMachineConfiguration`.
-2. `VMRunner` owns `VZVirtualMachine`, its delegate, terminal attachment, and
-   foreground lifecycle.
-3. `mote start <name>` resolves the bundle, constructs the configuration, and
-   hands control to the runner.
-
-Test the builder's policy separately from the live virtualization call. The first
-manual integration target should be a small ARM64 Linux image configured for a
-serial login console.
+Start Milestone 3 with `mote show <name>`, a per-VM runtime lock, and stable exit
+codes. Establish those observability and concurrency primitives before adding
+destructive lifecycle commands such as `delete` or forced remote stop.

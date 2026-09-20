@@ -11,7 +11,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "MoteCLI",
-            linkerSettings: [.linkedFramework("Virtualization")]
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("Virtualization")
+            ]
         ),
         .testTarget(
             name: "MoteCLITests",

@@ -2,6 +2,7 @@ import Foundation
 
 @main
 struct Mote {
+    @MainActor
     static func main() {
         do {
             let output = try CLI().run(arguments: Array(CommandLine.arguments.dropFirst()))

@@ -47,6 +47,24 @@ From the repository root:
 
 The result is `.build/release/mote`, signed with the Virtualization entitlement.
 
+### Automated setup through the first reboot
+
+Steps 1 through 4 can be performed by the included host-side script:
+
+```sh
+scripts/install-fedora-with-qemu.sh \
+  --iso /absolute/path/to/Fedora-Server-dvd-aarch64.iso
+```
+
+The script checks the ISO architecture from its filename, offers to install QEMU
+when necessary, builds Mote, creates a fresh VM bundle, and opens the interactive
+Fedora installer. It passes `-no-reboot` to QEMU, so QEMU exits when Fedora asks
+for its first reboot. Continue at step 5 afterward.
+
+Use `--help` to customize the VM name, store, CPU count, memory, or disk size. The
+remaining sections show every command the script performs and can also be
+followed manually.
+
 ## 2. Choose paths and create the VM
 
 Choose an isolated VM store and point `FEDORA_ISO` at the downloaded ISO. Use an
@@ -360,8 +378,8 @@ sudo nmcli device connect <interface>
 The QEMU command in step 5 remains a useful recovery console. Ensure Mote is not
 running, boot the disk with QEMU, make the repair, shut down, and try Mote again.
 
-## What Milestone 2 will remove
+## Native Mote alternative
 
-The QEMU step is temporary. Mote's installation milestone will attach an ARM64
-ISO itself, expose a suitable installer console or display, and manage the change
-from installation media to the installed disk.
+Mote can now attach an ARM64 ISO and present a graphical installer directly. See
+[Install Fedora Server with Mote](install-fedora-with-mote.md). This QEMU path is
+retained as a compatibility and recovery option.

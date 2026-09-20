@@ -127,6 +127,13 @@ struct VMStore {
         }
     }
 
+    func recordInstallation(_ installation: VMInstallation, for bundle: VMBundle) throws -> VMBundle {
+        let record = bundle.record.recordingInstallation(installation)
+        let data = try Self.encoder.encode(record)
+        try data.write(to: bundle.manifestURL, options: .atomic)
+        return VMBundle(record: record, url: bundle.url)
+    }
+
     static func isValidName(_ name: String) -> Bool {
         guard !name.isEmpty, name.count <= 64, name != ".", name != ".." else { return false }
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
