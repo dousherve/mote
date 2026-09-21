@@ -11,7 +11,7 @@ struct Mote {
             }
         } catch {
             FileHandle.standardError.write(Data("mote: \(error.localizedDescription)\n".utf8))
-            exit(EXIT_FAILURE)
+            exit(MoteExitStatus.code(for: error))
         }
     }
 }

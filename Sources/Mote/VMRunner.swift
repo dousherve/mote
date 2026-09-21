@@ -99,6 +99,42 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
         display?.show()
     }
 
+    @discardableResult
+    func requestGracefulStop(source: String) -> Bool {
+        guard !finished else { return true }
+        guard virtualMachine.canRequestStop else {
+            logger("The guest cannot accept a graceful shutdown request in its current state.")
+            return false
+        }
+
+        do {
+            try virtualMachine.requestStop()
+            logger("Requested a graceful guest shutdown from \(source).")
+            return true
+        } catch {
+            logger("Graceful shutdown request failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func forceStop() {
+        guard !finished else { return }
+        guard virtualMachine.canStop else {
+            logger("The virtual machine cannot be stopped in its current state.")
+            return
+        }
+
+        logger("Forcing the virtual machine to stop…")
+        virtualMachine.stop { [weak self] error in
+            guard let self else { return }
+            if let error {
+                self.failure = error
+            }
+            self.stopReason = .forced
+            self.finished = true
+        }
+    }
+
     func guestDidStop(_ virtualMachine: VZVirtualMachine) {
         logger("Guest shut down.")
         stopReason = .guestStopped
@@ -144,30 +180,11 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
         guard !finished else { return }
         stopRequestCount += 1
 
-        if stopRequestCount == 1, virtualMachine.canRequestStop {
-            do {
-                try virtualMachine.requestStop()
-                logger("Requested a graceful guest shutdown from \(source). Press Ctrl-] again to force stop.")
-                return
-            } catch {
-                logger("Graceful shutdown request failed: \(error.localizedDescription)")
-            }
-        }
-
-        guard virtualMachine.canStop else {
-            logger("The virtual machine cannot be stopped in its current state.")
+        if stopRequestCount == 1, requestGracefulStop(source: source) {
+            logger("Press Ctrl-] again to force stop.")
             return
         }
-
-        logger("Forcing the virtual machine to stop…")
-        virtualMachine.stop { [weak self] error in
-            guard let self else { return }
-            if let error {
-                self.failure = error
-            }
-            self.stopReason = .forced
-            self.finished = true
-        }
+        forceStop()
     }
 
     @MainActor

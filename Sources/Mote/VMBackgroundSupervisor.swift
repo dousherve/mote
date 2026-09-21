@@ -51,8 +51,15 @@ struct VMBackgroundSupervisor {
                 },
                 poll: {
                     control.poll { command in
-                        if command == "display" {
+                        switch command {
+                        case "display":
                             runner.showDisplay(title: bundle.record.name)
+                        case "stop":
+                            runner.requestGracefulStop(source: "mote stop")
+                        case "force-stop":
+                            runner.forceStop()
+                        default:
+                            break
                         }
                     }
                 }

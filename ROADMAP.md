@@ -88,21 +88,22 @@ layer over the same VM core rather than moving VM logic into the UI.
 
 Goal: make everyday VM operations safe and unsurprising.
 
-Status: in progress
+Status: implemented; end-to-end stop and restart validation remains pending a
+real installed guest.
 
 - [x] Start VMs in background supervisor processes by default.
 - [x] Add `mote attach <name>` and `mote display <name>` for delayed serial and
   graphical access.
-- [ ] Add `mote show <name>` for configuration, bundle path, disk allocation, and
+- [x] Add `mote show <name>` for configuration, bundle path, disk allocation, and
   runtime state.
-- [ ] Add graceful `stop`, forced `stop --force`, `restart`, and `delete` commands.
+- [x] Add graceful `stop`, forced `stop --force`, `restart`, and `delete` commands.
 - [x] Add a per-VM lock so two processes cannot run or mutate one VM concurrently.
 - [x] Persist the runner PID and detect stale runtime metadata.
-- [ ] Use stable exit codes for usage, missing VM, invalid configuration, and runtime
+- [x] Use stable exit codes for usage, missing VM, invalid configuration, and runtime
   failure.
-- [ ] Make command output script-friendly; add `--json` where structured output is
+- [x] Make command output script-friendly; add `--json` where structured output is
   useful.
-- [ ] Add temporary-directory and interrupted-write tests for storage operations.
+- [x] Add temporary-directory and interrupted-write tests for storage operations.
 
 Design checkpoint:
 
@@ -204,6 +205,6 @@ Until the core is mature, Mote will not attempt to provide:
 
 ## Next implementation slice
 
-Continue Milestone 3 with `mote show <name>`, supervisor-backed stop and restart
-commands, and stable exit codes. Add `delete` only after those observability and
-lifecycle controls are complete.
+Begin Milestone 4 with explicit virtio filesystem sharing. Preserve the current
+stable MAC-address derivation, which was pulled forward, then document SSH
+discovery before evaluating port forwarding or Rosetta sharing.

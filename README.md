@@ -39,9 +39,13 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swift test
 .build/release/mote create ubuntu --cpus 4 --memory 8G --disk 64G
 .build/release/mote install ubuntu --iso /path/to/installer-aarch64.iso
 .build/release/mote list
+.build/release/mote show ubuntu
 .build/release/mote start ubuntu
 .build/release/mote attach ubuntu
 .build/release/mote display ubuntu
+.build/release/mote stop ubuntu
+.build/release/mote restart ubuntu
+.build/release/mote delete ubuntu --force
 ```
 
 By default, VM bundles live in
@@ -60,6 +64,15 @@ detach without stopping the VM.
 `mote start <name> --display` opens the display immediately after starting.
 `mote start <name> --console` starts and immediately attaches the serial console;
 both options may be used together.
+
+`mote stop <name>` requests a graceful guest shutdown and waits for the
+supervisor to release the VM. Use `--force` to stop immediately. `restart`
+supports the same option. Deletion is intentionally limited to stopped VMs and
+requires `mote delete <name> --force`.
+
+`mote show` reports configuration, logical and allocated disk sizes,
+installation metadata, bundle location, and runtime state. `host`, `list`, and
+`show` accept `--json` for structured output.
 
 New VM disks are blank until `mote install` runs. The installed guest must be
 configured to use its virtio serial console (commonly `console=hvc0`) for

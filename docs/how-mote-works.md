@@ -24,12 +24,12 @@ inside that VM’s `.motevm` bundle.
        CLI parent          supervisor              guest
           │                    ▲  ▲
           │                    │  │
-          ├─ mote display ─────┘  │  bundle-local control FIFO
-          │                       │
+          ├─ mote display ─────┤  │  bundle-local control FIFO
+          ├─ mote stop ────────┘  │
           └─ mote attach ─────────┘  input FIFO + serial log
 ```
 
-The public `start`, `display`, and `attach` commands never share a
+The public `start`, `display`, `stop`, and `attach` commands never share a
 `VZVirtualMachine` object across processes. The supervisor owns the object;
 other CLI processes communicate through files and FIFOs in the bundle.
 
@@ -45,6 +45,8 @@ Resources/
 Sources/Mote/
   Mote.swift
   CLI.swift
+  CLIOutput.swift
+  ExitStatus.swift
   VMStore.swift
   VMRecord.swift
   VMConfigurationBuilder.swift
@@ -81,6 +83,8 @@ the VM, devices, boot loader, EFI variable store, and NAT attachment.
 |---|---|
 | [`Mote.swift`](../Sources/Mote/Mote.swift) | Process entry point, output, and top-level error handling |
 | [`CLI.swift`](../Sources/Mote/CLI.swift) | Command routing, argument parsing, and command orchestration |
+| [`CLIOutput.swift`](../Sources/Mote/CLIOutput.swift) | Codable reports and deterministic JSON encoding |
+| [`ExitStatus.swift`](../Sources/Mote/ExitStatus.swift) | Stable mapping from typed errors to `sysexits` codes |
 | [`VMStore.swift`](../Sources/Mote/VMStore.swift) | Bundle paths, creation, loading, manifests, and runtime metadata |
 | [`VMRecord.swift`](../Sources/Mote/VMRecord.swift) | Durable manifest and installation-state models |
 | [`ByteSize.swift`](../Sources/Mote/ByteSize.swift) | Human-readable binary size parsing and formatting |
@@ -128,10 +132,15 @@ APIs.
 2. calls `CLI.run(arguments:)` on the main actor;
 3. prints a nonempty returned string to standard output;
 4. prints thrown errors to standard error as `mote: <message>`;
-5. exits with `EXIT_FAILURE` for every error.
+5. maps typed errors to stable BSD `sysexits` values through `MoteExitStatus`.
 
-All failures currently use the same nonzero exit status. Stable error-specific
-exit codes are planned but are not implemented.
+Usage errors return `EX_USAGE` (64), malformed data returns `EX_DATAERR` (65),
+missing input returns `EX_NOINPUT` (66), unavailable runtime services return
+`EX_UNAVAILABLE` (69), local I/O errors return `EX_IOERR` (74), temporary lock
+or shutdown failures return `EX_TEMPFAIL` (75), and invalid persisted
+configuration returns `EX_CONFIG` (78). Unexpected failures use `EX_SOFTWARE`
+(70). Messages remain on standard error, so scripts can consume standard
+output independently.
 
 `CLI.run` also handles the private `_run` command. It is deliberately omitted
 from help because it is an implementation detail used to launch supervisors.
@@ -250,7 +259,8 @@ not perform the full component validation that `load` does.
 
 Reports the host’s logical CPU count, physical memory, Virtualization.framework
 CPU and memory bounds, and selected store path. The displayed architecture is
-currently fixed to `arm64` because Mote targets Apple silicon.
+currently fixed to `arm64` because Mote targets Apple silicon. `--json` returns
+the same data as a Codable object with byte counts represented as integers.
 
 ### `create`
 
@@ -268,8 +278,21 @@ suffixes. For example, `8G` is `8 × 2^30`, not eight decimal gigabytes.
 ### `list`
 
 Reads every manifest in the store, sorts records by localized VM name, and
-prints name, CPU count, memory, and logical disk size. It does not currently
-report runtime status.
+prints runtime state, CPU count, memory, and configured disk size. `--json`
+returns an array with integer byte counts.
+
+### `show`
+
+```sh
+mote show <name> [--json]
+```
+
+Loads and validates one bundle, then reports its ID, schema, creation time,
+CPU and memory configuration, bundle path, installation record, and runtime
+state. Disk output separates the manifest's configured size, the file's logical
+size, and the filesystem-allocated size. Runtime state is one of `stopped`,
+`running`, `stale`, or `invalid`; live or stale decodable metadata also includes
+the recorded PID and start time.
 
 ### `install`
 
@@ -325,6 +348,37 @@ does not become ready within 10 seconds, `start` reports the runner log path.
 `--display` and `--console` can be combined. The former asks the supervisor to
 open a window; the latter keeps the original CLI process in a serial attachment
 after startup.
+
+### `stop` and `restart`
+
+```sh
+mote stop <name> [--force]
+mote restart <name> [--force]
+```
+
+Without `--force`, `stop` writes `stop\n` to the control FIFO. The supervisor
+calls Virtualization.framework's graceful `requestStop()` API, which asks the
+guest to shut itself down. With `--force`, the command is `force-stop\n` and the
+supervisor uses the asynchronous `stop()` API instead.
+
+The CLI waits for both the active control channel to disappear and the per-VM
+lock to become acquirable. This two-part check prevents a restart from racing
+the old supervisor after it removed runtime metadata but before it released the
+disk and EFI state. Graceful shutdown waits up to 30 seconds; forced shutdown
+waits up to 10 seconds. `restart` requires a running VM, completes this same
+stop sequence, and then launches a fresh supervisor.
+
+### `delete`
+
+```sh
+mote delete <name> --force
+```
+
+Deletion requires an explicit `--force` confirmation and refuses to operate on
+a running or locked VM. It acquires the VM lock, rechecks liveness, and removes
+the entire `.motevm` bundle while still holding the lock. This permanently
+removes the disk, EFI variables, manifest, and diagnostic files; `--force` does
+not implicitly stop a guest.
 
 ### `display`
 
@@ -405,10 +459,11 @@ writes:
 
 The launcher accepts readiness only when this PID matches the child it spawned.
 
-For later commands, `VMStore.activeRuntime` requires both a decodable runtime
-file and an openable control FIFO. The FIFO check is the liveness check; Mote
-does not currently call `kill(pid, 0)`. A stale JSON file without a listening
-control channel is therefore treated as inactive.
+For later commands, `VMStore.runtimeStatus` distinguishes four states: no
+runtime file is `stopped`, a decodable file plus an openable control FIFO is
+`running`, a decodable file without a listener is `stale`, and an undecodable
+file is `invalid`. `activeRuntime` returns metadata only for `running`. The FIFO
+check is the liveness check; Mote does not currently call `kill(pid, 0)`.
 
 ### Locking
 
@@ -591,8 +646,8 @@ ending the runner.
 
 For direct signals or the foreground installer’s escape key, the first stop
 request calls `requestStop()` when the VM supports it. A later request uses the
-asynchronous forced `stop` API. Mote does not yet expose this path as a public
-background `mote stop` command.
+asynchronous forced `stop` API. Background control commands call the same two
+runner methods, so foreground and supervisor-owned VMs share shutdown logic.
 
 ## 12. Display and AppKit integration
 
@@ -634,6 +689,10 @@ mote display fedora
 mote attach fedora
   └─ tails serial log and writes terminal input to console FIFO
      └─ Ctrl-] detaches; supervisor and guest remain alive
+
+mote stop fedora
+  └─ writes `stop` to control FIFO and waits
+     └─ supervisor requests guest shutdown and releases the bundle lock
 ```
 
 ### Guest-initiated shutdown
@@ -664,7 +723,13 @@ Current coverage includes:
 - CLI argument rejection;
 - runtime metadata round trips;
 - per-VM lock contention;
-- control FIFO availability and command delivery.
+- control FIFO availability and command delivery;
+- stopped, stale, running, and invalid runtime-state detection;
+- logical and allocated disk reporting;
+- deterministic JSON output for list and show;
+- stable exit-code mapping;
+- explicit, lock-protected deletion;
+- recovery in the presence of an orphaned interrupted-write temporary file.
 
 The tests use temporary directories and do not download guest images. They do
 not boot a real Linux guest, exercise Anaconda, or prove graphical attachment to
@@ -721,11 +786,8 @@ The output should include `com.apple.security.virtualization`.
 
 The current implementation does not yet provide:
 
-- public `show`, `stop`, `restart`, or `delete` commands;
 - a global daemon or privileged helper;
 - detached installation;
-- error-specific exit codes;
-- JSON command output;
 - console-log rotation;
 - exclusive serial attachments;
 - bridged networking or host port forwarding;

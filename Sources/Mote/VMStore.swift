@@ -154,16 +154,39 @@ struct VMStore {
         return try? Self.decoder.decode(VMRuntime.self, from: data)
     }
 
-    func activeRuntime(for bundle: VMBundle) -> VMRuntime? {
-        guard let runtime = runtime(for: bundle),
-              VMControlChannel.isAvailable(for: bundle) else {
-            return nil
+    func runtimeStatus(for bundle: VMBundle) -> VMRuntimeStatus {
+        guard fileManager.fileExists(atPath: bundle.runtimeURL.path) else {
+            return .stopped
         }
+        guard let runtime = runtime(for: bundle) else {
+            return .invalid
+        }
+        return VMControlChannel.isAvailable(for: bundle) ? .running(runtime) : .stale(runtime)
+    }
+
+    func activeRuntime(for bundle: VMBundle) -> VMRuntime? {
+        guard case .running(let runtime) = runtimeStatus(for: bundle) else { return nil }
         return runtime
     }
 
     func clearRuntime(for bundle: VMBundle) {
         try? fileManager.removeItem(at: bundle.runtimeURL)
+    }
+
+    func diskUsage(for bundle: VMBundle) throws -> (logical: UInt64, allocated: UInt64) {
+        let values = try bundle.diskURL.resourceValues(forKeys: [
+            .fileSizeKey,
+            .fileAllocatedSizeKey,
+            .totalFileAllocatedSizeKey
+        ])
+        return (
+            logical: UInt64(values.fileSize ?? 0),
+            allocated: UInt64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
+        )
+    }
+
+    func delete(_ bundle: VMBundle) throws {
+        try fileManager.removeItem(at: bundle.url)
     }
 
     static func isValidName(_ name: String) -> Bool {

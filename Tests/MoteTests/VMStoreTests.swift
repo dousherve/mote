@@ -77,6 +77,89 @@ import Testing
     #expect(updated.record.installation == installation)
 }
 
+@Test func ignoresInterruptedManifestTemporaryFile() throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let record = VMRecord(name: "recoverable", cpuCount: 2, memorySize: 1 << 30, diskSize: 1 << 30)
+    try writeBundle(record, at: root, includeDisk: true, includeVariableStore: true)
+    let temporaryManifest = root
+        .appending(path: "recoverable.motevm")
+        .appending(path: ".config.json.interrupted")
+    try Data("{\"incomplete\":" .utf8).write(to: temporaryManifest)
+
+    let loaded = try VMStore(root: root).load(named: "recoverable")
+
+    #expect(loaded.record.id == record.id)
+}
+
+@Test func reportsDiskAllocationAndDeletesBundle() throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let record = VMRecord(name: "disposable", cpuCount: 2, memorySize: 1 << 30, diskSize: 1 << 20)
+    try writeBundle(record, at: root, includeDisk: true, includeVariableStore: true)
+    let store = VMStore(root: root)
+    let bundle = try store.load(named: "disposable")
+    let disk = try FileHandle(forWritingTo: bundle.diskURL)
+    try disk.truncate(atOffset: record.diskSize)
+    try disk.close()
+
+    let usage = try store.diskUsage(for: bundle)
+    #expect(usage.logical == record.diskSize)
+    #expect(usage.allocated <= usage.logical)
+
+    try store.delete(bundle)
+    #expect(!FileManager.default.fileExists(atPath: bundle.url.path))
+}
+
+@Test @MainActor func structuredCLIOutputIsValidJSON() throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let record = VMRecord(name: "json-vm", cpuCount: 2, memorySize: 1 << 30, diskSize: 1 << 30)
+    try writeBundle(record, at: root, includeDisk: true, includeVariableStore: true)
+    let cli = CLI(store: VMStore(root: root))
+
+    let listData = Data(try cli.run(arguments: ["list", "--json"]).utf8)
+    let list = try #require(JSONSerialization.jsonObject(with: listData) as? [[String: Any]])
+    #expect(list.first?["name"] as? String == "json-vm")
+    #expect(list.first?["state"] as? String == "stopped")
+
+    let showData = Data(try cli.run(arguments: ["show", "json-vm", "--json"]).utf8)
+    let details = try #require(JSONSerialization.jsonObject(with: showData) as? [String: Any])
+    #expect(details["name"] as? String == "json-vm")
+    #expect((details["runtime"] as? [String: Any])?["state"] as? String == "stopped")
+}
+
+@Test @MainActor func deleteRequiresForceAndRemovesStoppedVM() throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let record = VMRecord(name: "delete-me", cpuCount: 2, memorySize: 1 << 30, diskSize: 1 << 30)
+    try writeBundle(record, at: root, includeDisk: true, includeVariableStore: true)
+    let cli = CLI(store: VMStore(root: root))
+
+    #expect(throws: CLI.CLIError.self) {
+        try cli.run(arguments: ["delete", "delete-me"])
+    }
+    #expect(try cli.run(arguments: ["delete", "delete-me", "--force"]) == "Deleted 'delete-me'.")
+    #expect(!FileManager.default.fileExists(atPath: root.appending(path: "delete-me.motevm").path))
+}
+
+@Test @MainActor func deleteRefusesActiveVM() throws {
+    let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let record = VMRecord(name: "keep-running", cpuCount: 2, memorySize: 1 << 30, diskSize: 1 << 30)
+    try writeBundle(record, at: root, includeDisk: true, includeVariableStore: true)
+    let store = VMStore(root: root)
+    let bundle = try store.load(named: "keep-running")
+    try store.writeRuntime(VMRuntime(pid: 42, startedAt: Date()), for: bundle)
+    let channel = try VMControlChannel(url: bundle.controlURL)
+    defer { channel.stop() }
+
+    #expect(throws: CLI.CLIError.self) {
+        try CLI(store: store).run(arguments: ["delete", "keep-running", "--force"])
+    }
+    #expect(FileManager.default.fileExists(atPath: bundle.url.path))
+}
+
 private func writeBundle(
     _ record: VMRecord,
     at root: URL,
