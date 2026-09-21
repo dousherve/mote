@@ -32,4 +32,6 @@ import Testing
     #expect(throws: CLI.CLIError.self) { try cli.run(arguments: ["start", "one", "--console", "--console"]) }
     #expect(throws: CLI.CLIError.self) { try cli.run(arguments: ["attach"]) }
     #expect(throws: CLI.CLIError.self) { try cli.run(arguments: ["display", "one", "two"]) }
+    #expect(throws: CLI.CLIError.self) { try cli.run(arguments: ["mount", "one"]) }
+    #expect(throws: CLI.CLIError.self) { try cli.run(arguments: ["unmount"]) }
 }

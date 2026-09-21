@@ -34,6 +34,20 @@ enum MoteExitStatus {
             }
         }
 
+        if let error = error as? ISOImage.ISOError {
+            switch error {
+            case .notFound: return EX_NOINPUT
+            case .notISO, .notRegularFile: return EX_DATAERR
+            }
+        }
+
+        if let error = error as? VMISOControl.RequestError {
+            switch error {
+            case .unsupportedHost, .failed, .supervisorStopped: return EX_UNAVAILABLE
+            case .timedOut: return EX_TEMPFAIL
+            }
+        }
+
         if error is ByteSize.ParseError { return EX_USAGE }
         if error is VMLock.LockError { return EX_TEMPFAIL }
         if error is VMProcessLauncher.LaunchError { return EX_UNAVAILABLE }

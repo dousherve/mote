@@ -59,7 +59,24 @@ struct VMBackgroundSupervisor {
                         case "force-stop":
                             runner.forceStop()
                         default:
-                            break
+                            guard let request = VMISOControl.Request(command: command) else {
+                                break
+                            }
+                            let respond: (Error?) -> Void = { error in
+                                do {
+                                    try VMISOControl.respond(to: request, bundle: bundle, error: error)
+                                } catch {
+                                    FileHandle.standardError.write(
+                                        Data("mote: Unable to report ISO operation: \(error.localizedDescription)\n".utf8)
+                                    )
+                                }
+                            }
+                            switch request {
+                            case .mount(_, let path):
+                                runner.mountISO(path: path, completion: respond)
+                            case .unmount:
+                                runner.unmountISO(completion: respond)
+                            }
                         }
                     }
                 }

@@ -11,6 +11,26 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
         case forced
     }
 
+    enum ISOError: LocalizedError {
+        case alreadyMounted
+        case notMounted
+        case operationInProgress
+        case noUSBController
+
+        var errorDescription: String? {
+            switch self {
+            case .alreadyMounted:
+                return "An ISO is already mounted. Unmount it before mounting another."
+            case .notMounted:
+                return "No ISO is mounted in this VM."
+            case .operationInProgress:
+                return "An ISO mount or unmount is already in progress."
+            case .noUSBController:
+                return "The VM has no USB controller for hot-mounted ISO media."
+            }
+        }
+    }
+
     private let virtualMachine: VZVirtualMachine
     private let terminal: TerminalSession?
     private let logger: Logger
@@ -21,6 +41,9 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
     private var stopReason: StopReason?
     private var stopRequestCount = 0
     private var display: VMDisplay?
+    // Stored type-erased so the runner itself can remain available on macOS 14.
+    private var mountedISO: AnyObject?
+    private var isoOperationInProgress = false
 
     init(
         configuration: VZVirtualMachineConfiguration,
@@ -132,6 +155,76 @@ final class VMRunner: NSObject, VZVirtualMachineDelegate, @unchecked Sendable {
             }
             self.stopReason = .forced
             self.finished = true
+        }
+    }
+
+    @MainActor
+    func mountISO(path: String, completion: @escaping (Error?) -> Void) {
+        guard #available(macOS 15.0, *) else {
+            completion(VMISOControl.RequestError.unsupportedHost)
+            return
+        }
+        guard !isoOperationInProgress else {
+            completion(ISOError.operationInProgress)
+            return
+        }
+        guard mountedISO == nil else {
+            completion(ISOError.alreadyMounted)
+            return
+        }
+        guard let controller = virtualMachine.usbControllers.first else {
+            completion(ISOError.noUSBController)
+            return
+        }
+
+        do {
+            let image = try ISOImage(path: path)
+            let attachment = try VZDiskImageStorageDeviceAttachment(url: image.url, readOnly: true)
+            let configuration = VZUSBMassStorageDeviceConfiguration(attachment: attachment)
+            let device = VZUSBMassStorageDevice(configuration: configuration)
+            isoOperationInProgress = true
+            controller.attach(device: device) { [weak self] error in
+                guard let self else { return }
+                self.isoOperationInProgress = false
+                if error == nil {
+                    self.mountedISO = device
+                    self.logger("Mounted ISO \(image.url.path).")
+                }
+                completion(error)
+            }
+        } catch {
+            completion(error)
+        }
+    }
+
+    @MainActor
+    func unmountISO(completion: @escaping (Error?) -> Void) {
+        guard #available(macOS 15.0, *) else {
+            completion(VMISOControl.RequestError.unsupportedHost)
+            return
+        }
+        guard !isoOperationInProgress else {
+            completion(ISOError.operationInProgress)
+            return
+        }
+        guard let device = mountedISO as? VZUSBMassStorageDevice else {
+            completion(ISOError.notMounted)
+            return
+        }
+        guard let controller = virtualMachine.usbControllers.first else {
+            completion(ISOError.noUSBController)
+            return
+        }
+
+        isoOperationInProgress = true
+        controller.detach(device: device) { [weak self] error in
+            guard let self else { return }
+            self.isoOperationInProgress = false
+            if error == nil {
+                self.mountedISO = nil
+                self.logger("Unmounted ISO.")
+            }
+            completion(error)
         }
     }
 

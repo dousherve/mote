@@ -58,6 +58,9 @@ struct VMConfigurationBuilder {
             configuration.storageDevices = [mediaDevice, blockDevice]
         } else {
             configuration.storageDevices = [blockDevice]
+            if #available(macOS 15.0, *) {
+                configuration.usbControllers = [VZXHCIControllerConfiguration()]
+            }
         }
 
         let network = VZVirtioNetworkDeviceConfiguration()

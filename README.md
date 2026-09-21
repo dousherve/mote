@@ -43,6 +43,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swift test
 .build/release/mote start ubuntu
 .build/release/mote attach ubuntu
 .build/release/mote display ubuntu
+.build/release/mote mount ubuntu --iso /path/to/tools.iso
+.build/release/mote unmount ubuntu
 .build/release/mote stop ubuntu
 .build/release/mote restart ubuntu
 .build/release/mote delete ubuntu --force
@@ -73,6 +75,15 @@ requires `mote delete <name> --force`.
 `mote show` reports configuration, logical and allocated disk sizes,
 installation metadata, bundle location, and runtime state. `host`, `list`, and
 `show` accept `--json` for structured output.
+
+On macOS 15 or newer, `mote mount <name> --iso <path>` hot-plugs one read-only ISO
+into a running background VM as USB mass storage. No reboot is needed. Unmount
+or eject the media inside the guest first, then run `mote unmount <name>` on the
+host. The mount is temporary: it is not copied into the VM bundle or restored
+after a VM restart. The ISO file must remain available on the host while
+mounted. These commands are unavailable during the foreground `mote install`
+session. Restart a VM that was launched by an older Mote binary before using
+these commands.
 
 New VM disks are blank until `mote install` runs. The installed guest must be
 configured to use its virtio serial console (commonly `console=hvc0`) for

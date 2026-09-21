@@ -47,6 +47,7 @@ Sources/Mote/
   CLI.swift
   CLIOutput.swift
   ExitStatus.swift
+  ISOImage.swift
   VMStore.swift
   VMRecord.swift
   VMConfigurationBuilder.swift
@@ -57,6 +58,7 @@ Sources/Mote/
   VMRuntime.swift
   VMLock.swift
   VMControlChannel.swift
+  VMISOControl.swift
   BackgroundConsole.swift
   SerialAttachment.swift
   TerminalSession.swift
@@ -89,6 +91,7 @@ the VM, devices, boot loader, EFI variable store, and NAT attachment.
 | [`VMRecord.swift`](../Sources/Mote/VMRecord.swift) | Durable manifest and installation-state models |
 | [`ByteSize.swift`](../Sources/Mote/ByteSize.swift) | Human-readable binary size parsing and formatting |
 | [`InstallationMedia.swift`](../Sources/Mote/InstallationMedia.swift) | ISO path and ARM64 filename policy |
+| [`ISOImage.swift`](../Sources/Mote/ISOImage.swift) | Regular-file ISO validation for runtime mounting |
 | [`VMConfigurationBuilder.swift`](../Sources/Mote/VMConfigurationBuilder.swift) | Translation from a bundle into Virtualization.framework devices |
 | [`VMRunner.swift`](../Sources/Mote/VMRunner.swift) | VM ownership, callbacks, signals, event pumping, and shutdown |
 | [`VMDisplay.swift`](../Sources/Mote/VMDisplay.swift) | AppKit window and `VZVirtualMachineView` integration |
@@ -97,6 +100,7 @@ the VM, devices, boot loader, EFI variable store, and NAT attachment.
 | [`VMRuntime.swift`](../Sources/Mote/VMRuntime.swift) | Ephemeral PID and start-time record |
 | [`VMLock.swift`](../Sources/Mote/VMLock.swift) | Nonblocking per-VM advisory lock |
 | [`VMControlChannel.swift`](../Sources/Mote/VMControlChannel.swift) | Bundle-local command FIFO and liveness probe |
+| [`VMISOControl.swift`](../Sources/Mote/VMISOControl.swift) | Mount/unmount request encoding and completion responses |
 | [`BackgroundConsole.swift`](../Sources/Mote/BackgroundConsole.swift) | Supervisor-side serial input FIFO and output log |
 | [`SerialAttachment.swift`](../Sources/Mote/SerialAttachment.swift) | Client-side terminal attachment to a background VM |
 | [`TerminalSession.swift`](../Sources/Mote/TerminalSession.swift) | Direct terminal transport used during installation |
@@ -173,6 +177,7 @@ fedora.motevm/
   .console-input          serial-input FIFO, present while active
   .console.log            serial output for the current/last run
   .runner.log             supervisor diagnostics for the current/last run
+  .iso-response-<UUID>     temporary ISO operation result, while requested
 ```
 
 The first three files are the portable VM state. Hidden files are runtime and
@@ -189,6 +194,7 @@ diagnostic implementation details.
 | `.console-input` | `BackgroundConsole` | FIFO carrying attached-terminal input to the guest |
 | `.console.log` | `BackgroundConsole` | Guest serial output; truncated at each background start |
 | `.runner.log` | `VMProcessLauncher` | Supervisor stdout/stderr; truncated at each launch |
+| `.iso-response-<UUID>` | `VMISOControl` | Owner-only, short-lived mount/unmount completion result |
 
 Runtime metadata, FIFOs, and logs are assigned owner-only permissions where the
 code creates them. The lock is also opened with mode `0600`.
@@ -379,6 +385,34 @@ a running or locked VM. It acquires the VM lock, rechecks liveness, and removes
 the entire `.motevm` bundle while still holding the lock. This permanently
 removes the disk, EFI variables, manifest, and diagnostic files; `--force` does
 not implicitly stop a guest.
+
+### `mount` and `unmount`
+
+```sh
+mote mount <name> --iso <path>
+mote unmount <name>
+```
+
+On macOS 15 or newer, a background VM has an XHCI USB controller. `mount`
+validates a regular `.iso` file, then asks the supervisor to attach it as a
+read-only `VZUSBMassStorageDevice`. The ISO may contain any guest-compatible
+content; unlike installation media, its filename need not identify ARM64.
+The command waits for Virtualization.framework's attach callback before it
+reports success. One hot-mounted ISO is supported per VM at a time.
+
+`unmount` asks the supervisor to detach that device and waits for the detach
+callback. Eject or unmount it in the guest first so guest software is no longer
+reading it. Neither operation changes the manifest, and a hot-mounted ISO is
+not restored after shutdown or restart. The host ISO file must remain present
+while mounted. Foreground `mote install` sessions do not have a supervisor
+control channel and do not support these commands.
+
+The request travels over `.control` with a UUID and an encoded path. The
+supervisor writes an operation result to a short-lived response file in the
+bundle; the CLI waits up to 30 seconds and then removes it. A timeout means
+the result is unknown, not necessarily that the framework canceled the action.
+On macOS 14, Mote still runs VMs normally but returns an unsupported-version
+error for runtime ISO mounting.
 
 ### `display`
 
@@ -620,6 +654,8 @@ When graphics are enabled, the builder adds:
 Installation enables graphics. Background supervisors also always configure
 graphics, even for a headless start, because Virtualization.framework device
 configuration is fixed after startup and `mote display` must work later.
+On macOS 15 or newer, background configurations also include an XHCI USB
+controller so the runner can hot-plug ISO media later.
 
 Finally, `configuration.validate()` asks Virtualization.framework to reject an
 invalid combination before `VZVirtualMachine` starts.
@@ -648,6 +684,8 @@ For direct signals or the foreground installer’s escape key, the first stop
 request calls `requestStop()` when the VM supports it. A later request uses the
 asynchronous forced `stop` API. Background control commands call the same two
 runner methods, so foreground and supervisor-owned VMs share shutdown logic.
+The runner also retains the active USB mass-storage object and serializes
+mount/unmount requests until their framework callbacks complete.
 
 ## 12. Display and AppKit integration
 
@@ -729,7 +767,8 @@ Current coverage includes:
 - deterministic JSON output for list and show;
 - stable exit-code mapping;
 - explicit, lock-protected deletion;
-- recovery in the presence of an orphaned interrupted-write temporary file.
+- recovery in the presence of an orphaned interrupted-write temporary file;
+- ISO path validation and control-command encoding.
 
 The tests use temporary directories and do not download guest images. They do
 not boot a real Linux guest, exercise Anaconda, or prove graphical attachment to
@@ -816,6 +855,7 @@ Use this map when extending the project:
 | Change installer terminal behavior | [`TerminalSession.swift`](../Sources/Mote/TerminalSession.swift) |
 | Change graphical presentation | [`VMDisplay.swift`](../Sources/Mote/VMDisplay.swift) |
 | Change ISO admission policy | [`InstallationMedia.swift`](../Sources/Mote/InstallationMedia.swift) |
+| Change hot ISO mount policy or protocol | [`ISOImage.swift`](../Sources/Mote/ISOImage.swift), [`VMISOControl.swift`](../Sources/Mote/VMISOControl.swift), [`VMRunner.swift`](../Sources/Mote/VMRunner.swift) |
 | Add tests | [`Tests/MoteTests`](../Tests/MoteTests) |
 
 When adding a manifest field, keep decoding older manifests in mind. When adding

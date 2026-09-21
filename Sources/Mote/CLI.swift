@@ -67,6 +67,10 @@ struct CLI {
             return try attachVM(arguments: Array(arguments.dropFirst()))
         case "display":
             return try displayVM(arguments: Array(arguments.dropFirst()))
+        case "mount":
+            return try mountISO(arguments: Array(arguments.dropFirst()))
+        case "unmount":
+            return try unmountISO(arguments: Array(arguments.dropFirst()))
         case "install":
             return try installVM(arguments: Array(arguments.dropFirst()))
         case "_run":
@@ -372,6 +376,39 @@ struct CLI {
         return "Opened the display for '\(name)'."
     }
 
+    private func mountISO(arguments: [String]) throws -> String {
+        guard arguments.count == 3,
+              let name = arguments.first, !name.hasPrefix("-"),
+              arguments[1] == "--iso" else {
+            throw CLIError.usage("Usage: mote mount <name> --iso <path>")
+        }
+        guard #available(macOS 15.0, *) else {
+            throw VMISOControl.RequestError.unsupportedHost
+        }
+        let bundle = try store.load(named: name)
+        guard store.activeRuntime(for: bundle) != nil else {
+            throw CLIError.notRunning(name)
+        }
+        let image = try ISOImage(path: arguments[2])
+        try VMISOControl.request(.mount(id: UUID(), path: image.url.path), to: bundle)
+        return "Mounted '\(image.url.path)' in '\(name)'."
+    }
+
+    private func unmountISO(arguments: [String]) throws -> String {
+        guard arguments.count == 1, let name = arguments.first, !name.hasPrefix("-") else {
+            throw CLIError.usage("Usage: mote unmount <name>")
+        }
+        guard #available(macOS 15.0, *) else {
+            throw VMISOControl.RequestError.unsupportedHost
+        }
+        let bundle = try store.load(named: name)
+        guard store.activeRuntime(for: bundle) != nil else {
+            throw CLIError.notRunning(name)
+        }
+        try VMISOControl.request(.unmount(id: UUID()), to: bundle)
+        return "Unmounted the ISO from '\(name)'."
+    }
+
     @MainActor
     private func runSupervisor(arguments: [String]) throws -> String {
         guard arguments.count == 1, let name = arguments.first else {
@@ -481,6 +518,9 @@ struct CLI {
                           Stop and start a running VM
       attach <name>       Attach to a running VM's serial console
       display <name>      Open the display of a running VM
+      mount <name> --iso <path>
+                          Hot-mount a read-only ISO in a running VM (macOS 15+)
+      unmount <name>      Remove the hot-mounted ISO from a running VM
       install <name> --iso <path> [--force]
                           Boot an ARM64 installer in a graphical window
       show <name> [--json]

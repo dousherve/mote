@@ -11,5 +11,7 @@ import Testing
     #expect(MoteExitStatus.code(for: ByteSize.ParseError.invalid("nope")) == EX_USAGE)
     #expect(MoteExitStatus.code(for: VMConfigurationBuilder.ConfigurationError.invalidDiskSize(1)) == EX_CONFIG)
     #expect(MoteExitStatus.code(for: VMStore.StoreError.corruptBundle("broken")) == EX_DATAERR)
+    #expect(MoteExitStatus.code(for: ISOImage.ISOError.notFound("missing.iso")) == EX_NOINPUT)
+    #expect(MoteExitStatus.code(for: VMISOControl.RequestError.timedOut("vm")) == EX_TEMPFAIL)
     #expect(MoteExitStatus.code(for: CocoaError(.fileReadUnknown)) == EX_IOERR)
 }
