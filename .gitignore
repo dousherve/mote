@@ -3,4 +3,6 @@
 .swiftpm/
 *.motevm/
 vms/
+
+.env
 .DS_Store
